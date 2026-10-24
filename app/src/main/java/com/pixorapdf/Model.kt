@@ -87,10 +87,10 @@ class Prefs(context: Context) {
     var favorites by mutableStateOf(sp.getStringSet("fav", emptySet())?.toSet() ?: emptySet())
         private set
 
-    fun setTheme(v: String) { theme = v; sp.edit().putString("theme", v).apply() }
-    fun setPageSize(v: PageSize) { pageSize = v; sp.edit().putString("size", v.name).apply() }
-    fun setQuality(v: Quality) { quality = v; sp.edit().putString("quality", v.name).apply() }
-    fun setSaveLocation(v: String) { saveLocation = v; sp.edit().putString("location", v).apply() }
+    fun updateTheme(v: String) { theme = v; sp.edit().putString("theme", v).apply() }
+    fun updatePageSize(v: PageSize) { pageSize = v; sp.edit().putString("size", v.name).apply() }
+    fun updateQuality(v: Quality) { quality = v; sp.edit().putString("quality", v.name).apply() }
+    fun updateSaveLocation(v: String) { saveLocation = v; sp.edit().putString("location", v).apply() }
     fun toggleFavorite(uri: Uri) {
         val k = uri.toString()
         favorites = if (k in favorites) favorites - k else favorites + k
