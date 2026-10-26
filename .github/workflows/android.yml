@@ -22,15 +22,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
       - uses: android-actions/setup-android@v3
         with:
-          # The action's default package list contains the retired "tools" package, which makes sdkmanager fail.
-          packages: 'platform-tools platforms;android-35 build-tools;34.0.0'
+          packages: ''   # default 'tools' package no longer exists and made this step fail; runner already has the SDK
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -79,15 +78,14 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
       - uses: android-actions/setup-android@v3
         with:
-          # The action's default package list contains the retired "tools" package, which makes sdkmanager fail.
-          packages: 'platform-tools platforms;android-35 build-tools;34.0.0'
+          packages: ''   # default 'tools' package no longer exists and made this step fail; runner already has the SDK
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -100,36 +98,13 @@ jobs:
           KA: ${{ secrets.KEY_ALIAS }}
           KP: ${{ secrets.KEY_PASSWORD }}
         run: |
-          printf '%s' "$KS" | tr -d '\r\n ' | base64 --decode > pixora-release.jks
-          STOREPASS="$(printf '%s' "$KSP" | tr -d '\r\n')"
-          KEYPASS="$(printf '%s' "$KP" | tr -d '\r\n')"
-          ALIAS="$(printf '%s' "$KA" | tr -d '\r\n' | sed 's/^ *//;s/ *$//')"
-
-          if ! keytool -list -keystore pixora-release.jks -storepass "$STOREPASS" > aliases.txt 2>&1; then
-            echo "::error::Cannot open the keystore. KEYSTORE_PASSWORD is wrong or KEYSTORE_BASE64 is not the full base64 of your .jks file."
-            exit 1
-          fi
-          echo "Entries found in the keystore:"
-          grep -E "PrivateKeyEntry|trustedCertEntry" aliases.txt | sed 's/,.*,/  ->/' || true
-
-          if ! keytool -list -keystore pixora-release.jks -storepass "$STOREPASS" -alias "$ALIAS" > /dev/null 2>&1; then
-            COUNT="$(grep -c "PrivateKeyEntry" aliases.txt || true)"
-            if [ "$COUNT" = "1" ]; then
-              ALIAS="$(grep "PrivateKeyEntry" aliases.txt | sed 's/,.*//')"
-              echo "::warning::KEY_ALIAS secret did not match; using the only key in the keystore: $ALIAS. Update the KEY_ALIAS secret to this value."
-            else
-              echo "::error::KEY_ALIAS does not match any key in the keystore. Set KEY_ALIAS to one of the aliases listed above."
-              exit 1
-            fi
-          fi
-
+          echo "$KS" | base64 --decode > pixora-release.jks
           {
             echo "storeFile=pixora-release.jks"
-            echo "storePassword=$STOREPASS"
-            echo "keyAlias=$ALIAS"
-            echo "keyPassword=$KEYPASS"
+            echo "storePassword=$KSP"
+            echo "keyAlias=$KA"
+            echo "keyPassword=$KP"
           } > keystore.properties
-          rm -f aliases.txt
 
       - name: Build signed AAB
         run: gradle bundleRelease -PversionCodeOverride=${{ github.run_number }} --stacktrace
