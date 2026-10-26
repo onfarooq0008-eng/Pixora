@@ -293,6 +293,7 @@ fun PdfSettingsScreen(state: AppState) {
 @Composable
 fun CreatedScreen(state: AppState, s: Screen.Created) {
     val ctx = LocalContext.current
+    val activity = ctx.findActivity()
     val cs = MaterialTheme.colorScheme
     var file by remember { mutableStateOf(s.file) }
     var renaming by remember { mutableStateOf(false) }
@@ -337,19 +338,21 @@ fun CreatedScreen(state: AppState, s: Screen.Created) {
                 Icon(Icons.Default.Edit, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Rename")
             }
             Spacer(Modifier.height(10.dp))
-            FilledTonalButton(onClick = { state.root(Screen.Files) }, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(14.dp)) {
+            FilledTonalButton(onClick = { Ads.afterTask(activity) { state.root(Screen.Files) } }, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(14.dp)) {
                 Icon(Icons.Default.Folder, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("View in Files")
             }
         } else {
             Text(s.detail, color = cs.onSurfaceVariant, textAlign = TextAlign.Center)
             Spacer(Modifier.height(18.dp))
-            PrimaryButton("Back to Home") { state.root(Screen.Home) }
+            PrimaryButton("Back to Home") { Ads.afterTask(activity) { state.root(Screen.Home) } }
         }
         Spacer(Modifier.height(10.dp))
         OutlinedButton(
-            onClick = { state.root(Screen.Home); state.openImageToPdf() },
+            onClick = { Ads.afterTask(activity) { state.root(Screen.Home); state.openImageToPdf() } },
             modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(14.dp)
         ) { Text("Create Another PDF", fontWeight = FontWeight.SemiBold) }
+        Spacer(Modifier.height(16.dp))
+        NativeAdCard(Modifier.fillMaxWidth())
         Spacer(Modifier.height(20.dp))
     }
 

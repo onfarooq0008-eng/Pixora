@@ -22,15 +22,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
       - uses: android-actions/setup-android@v3
-        with:
-          # The action's default package list contains the retired "tools" package, which makes sdkmanager fail.
-          packages: 'platform-tools platforms;android-35 build-tools;34.0.0'
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -79,15 +76,12 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
       - uses: android-actions/setup-android@v3
-        with:
-          # The action's default package list contains the retired "tools" package, which makes sdkmanager fail.
-          packages: 'platform-tools platforms;android-35 build-tools;34.0.0'
 
       - uses: gradle/actions/setup-gradle@v4
         with:

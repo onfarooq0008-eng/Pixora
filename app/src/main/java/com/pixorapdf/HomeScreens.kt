@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -134,6 +134,8 @@ fun HomeScreen(state: AppState) {
                 }
             }
         }
+
+        NativeAdCard(Modifier.fillMaxWidth().padding(bottom = 6.dp))
 
         if (recent.isNotEmpty()) {
             Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -303,9 +305,11 @@ fun FilesScreen(state: AppState) {
             }
         } else {
             LazyColumn(Modifier.fillMaxSize()) {
-                items(shown, key = { it.uri.toString() }) { f ->
+                itemsIndexed(shown, key = { _, f -> f.uri.toString() }) { i, f ->
                     FileRow(f, state, onChanged = { state.filesVersion++ })
                     HorizontalDivider(color = cs.outlineVariant)
+                    // one native ad after the 3rd file (only when the list is long enough)
+                    if (i == 2 && shown.size > 3) NativeAdCard(Modifier.fillMaxWidth().padding(vertical = 8.dp))
                 }
             }
         }
@@ -387,10 +391,10 @@ fun SettingsScreen(state: AppState) {
     }
 
     when (dialog) {
-        "theme" -> ChoiceDialog("Dark Mode", listOf("System", "Light", "Dark"), prefs.theme, { it }, { prefs.updateTheme(it) }, { dialog = "" })
-        "size" -> ChoiceDialog("Default Page Size", PageSize.values().toList(), prefs.pageSize, { it.label }, { prefs.updatePageSize(it) }, { dialog = "" })
-        "quality" -> ChoiceDialog("Default Image Quality", Quality.values().toList(), prefs.quality, { it.label }, { prefs.updateQuality(it) }, { dialog = "" })
-        "location" -> ChoiceDialog("Save Location", listOf("Downloads", "Documents"), prefs.saveLocation, { "$it/Pixora PDF" }, { prefs.updateSaveLocation(it); state.filesVersion++ }, { dialog = "" })
+        "theme" -> ChoiceDialog("Dark Mode", listOf("System", "Light", "Dark"), prefs.theme, { it }, { prefs.setTheme(it) }, { dialog = "" })
+        "size" -> ChoiceDialog("Default Page Size", PageSize.values().toList(), prefs.pageSize, { it.label }, { prefs.setPageSize(it) }, { dialog = "" })
+        "quality" -> ChoiceDialog("Default Image Quality", Quality.values().toList(), prefs.quality, { it.label }, { prefs.setQuality(it) }, { dialog = "" })
+        "location" -> ChoiceDialog("Save Location", listOf("Downloads", "Documents"), prefs.saveLocation, { "$it/Pixora PDF" }, { prefs.setSaveLocation(it); state.filesVersion++ }, { dialog = "" })
         "language" -> ChoiceDialog("Language", listOf("English"), "English", { it }, {}, { dialog = "" })
     }
 }

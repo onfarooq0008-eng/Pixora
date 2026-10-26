@@ -45,7 +45,7 @@ android {
         }
     }
 
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -74,4 +74,7 @@ dependencies {
 
     // Real PDF merge / split / rotate / password / JPEG-compressed pages
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+
+    // Yandex Mobile Ads (native + interstitial)
+    implementation("com.yandex.android:mobileads:8.6.0")
 }

@@ -24,6 +24,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val app = applicationContext
+        Ads.init(app)
         Thread {
             try { PdfOps.init(app) } catch (_: Throwable) {}
             try {
