@@ -387,8 +387,9 @@ fun CropScreen(state: AppState, pageId: Long) {
     var rot by remember { mutableIntStateOf(page.rotation) }
     var crop by remember { mutableStateOf(page.crop ?: CropRect.FULL) }
     var ratio by remember { mutableStateOf<Float?>(null) }
-    val bmp by produceState<Bitmap?>(null, page.uri, rot) {
-        value = withContext(Dispatchers.IO) { Img.render(ctx, page.copy(rotation = rot, crop = null, enhance = false), 1600) }
+    var bmp by remember { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(page.uri, rot) {
+        bmp = withContext(Dispatchers.IO) { Img.render(ctx, page.copy(rotation = rot, crop = null, enhance = false), 1600) }
     }
     val ratios = listOf<Pair<String, Float?>>("Free" to null, "1:1" to 1f, "3:4" to 0.75f, "4:3" to 4f / 3f, "16:9" to 16f / 9f)
 

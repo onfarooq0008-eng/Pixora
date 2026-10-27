@@ -279,7 +279,8 @@ fun ViewerScreen(state: AppState, v: Screen.Viewer) {
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(session.count) { i ->
-                    val bmp by produceState<Bitmap?>(null, i) { value = try { session.render(i, 1080) } catch (e: Throwable) { null } }
+                    var bmp by remember(i) { mutableStateOf<Bitmap?>(null) }
+                    LaunchedEffect(i) { bmp = try { session.render(i, 1080) } catch (e: Throwable) { null } }
                     Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(androidx.compose.ui.graphics.Color.White)) {
                         val b = bmp
                         if (b != null) androidx.compose.foundation.Image(b.asImageBitmap(), "Page ${i + 1}", Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth)

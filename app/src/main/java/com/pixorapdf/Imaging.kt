@@ -88,8 +88,9 @@ object Img {
 @Composable
 fun AsyncThumb(page: PageItem, size: Int, modifier: Modifier = Modifier, scale: ContentScale = ContentScale.Crop) {
     val ctx = LocalContext.current
-    val bmp by produceState<Bitmap?>(null, page.uri, page.rotation, page.crop, page.enhance, size) {
-        value = Img.thumb(ctx, page, size)
+    var bmp by remember { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(page.uri, page.rotation, page.crop, page.enhance, size) {
+        bmp = Img.thumb(ctx, page, size)
     }
     Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant)) {
         bmp?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = scale) }

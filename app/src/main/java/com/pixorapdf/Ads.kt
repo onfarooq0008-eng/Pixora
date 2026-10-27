@@ -96,8 +96,7 @@ object Ads {
         exits++
         val now = System.currentTimeMillis()
         val ad = interstitial
-        val due = activity != null && ad != null &&
-            exits % EVERY_NTH_EXIT == 0 &&
+        val due = exits % EVERY_NTH_EXIT == 0 &&
             now - startTime >= WARMUP_MS &&
             now - lastShown >= MIN_GAP_MS
         if (!due || activity == null || ad == null) {
