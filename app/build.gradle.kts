@@ -51,6 +51,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    // Yandex lint fails release builds whenever a newer ads SDK exists; keep builds reproducible instead
+    lint { disable += "YandexAdsSdkOutdatedVersion" }
     packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
 }
 

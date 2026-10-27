@@ -22,10 +22,10 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yandex.mobile.ads.common.AdError
-import com.yandex.mobile.ads.common.AdRequestConfiguration
+import com.yandex.mobile.ads.common.AdRequest
 import com.yandex.mobile.ads.common.AdRequestError
 import com.yandex.mobile.ads.common.ImpressionData
-import com.yandex.mobile.ads.common.MobileAds
+import com.yandex.mobile.ads.common.YandexAds
 import com.yandex.mobile.ads.interstitial.InterstitialAd
 import com.yandex.mobile.ads.interstitial.InterstitialAdEventListener
 import com.yandex.mobile.ads.interstitial.InterstitialAdLoadListener
@@ -34,7 +34,6 @@ import com.yandex.mobile.ads.nativeads.MediaView
 import com.yandex.mobile.ads.nativeads.NativeAd
 import com.yandex.mobile.ads.nativeads.NativeAdLoadListener
 import com.yandex.mobile.ads.nativeads.NativeAdLoader
-import com.yandex.mobile.ads.nativeads.NativeAdRequestConfiguration
 import com.yandex.mobile.ads.nativeads.NativeAdView
 import com.yandex.mobile.ads.nativeads.NativeAdViewBinder
 
@@ -73,20 +72,20 @@ object Ads {
         if (started) return
         started = true
         startTime = System.currentTimeMillis()
-        MobileAds.initialize(app) { preloadInterstitial(app) }
+        YandexAds.initialize(app) { preloadInterstitial(app) }
     }
 
     private fun preloadInterstitial(app: Context) {
         if (loading || interstitial != null) return
-        val l = loader ?: InterstitialAdLoader(app).also {
-            it.setAdLoadListener(object : InterstitialAdLoadListener {
+        val l = loader ?: InterstitialAdLoader(app).also { loader = it }
+        loading = true
+        l.loadAd(
+            AdRequest.Builder(interstitialUnit).build(),
+            object : InterstitialAdLoadListener {
                 override fun onAdLoaded(interstitialAd: InterstitialAd) { interstitial = interstitialAd; loading = false }
                 override fun onAdFailedToLoad(adRequestError: AdRequestError) { loading = false }
-            })
-            loader = it
-        }
-        loading = true
-        l.loadAd(AdRequestConfiguration.Builder(interstitialUnit).build())
+            }
+        )
     }
 
     /**
@@ -140,13 +139,16 @@ fun NativeAdCard(modifier: Modifier = Modifier) {
     var ad by remember { mutableStateOf<NativeAd?>(null) }
 
     DisposableEffect(Unit) {
+        var disposed = false
         val loader = NativeAdLoader(ctx)
-        loader.setNativeAdLoadListener(object : NativeAdLoadListener {
-            override fun onAdLoaded(nativeAd: NativeAd) { ad = nativeAd }
-            override fun onAdFailedToLoad(error: AdRequestError) {}
-        })
-        loader.loadAd(NativeAdRequestConfiguration.Builder(Ads.nativeUnit).build())
-        onDispose { loader.setNativeAdLoadListener(null) }
+        loader.loadAd(
+            AdRequest.Builder(Ads.nativeUnit).build(),
+            object : NativeAdLoadListener {
+                override fun onAdLoaded(nativeAd: NativeAd) { if (!disposed) ad = nativeAd }
+                override fun onAdFailedToLoad(error: AdRequestError) {}
+            }
+        )
+        onDispose { disposed = true }
     }
 
     val loaded = ad ?: return
@@ -185,6 +187,9 @@ private fun buildNativeAdView(c: Context, ad: NativeAd, bg: Int, stroke: Int, ti
     val sponsored = TextView(c).apply {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f); setTextColor(subColor); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
     }
+    val warning = TextView(c).apply {
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f); setTextColor(subColor); maxLines = 2; ellipsize = TextUtils.TruncateAt.END
+    }
     texts.addView(title); texts.addView(sponsored)
     header.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
@@ -200,6 +205,8 @@ private fun buildNativeAdView(c: Context, ad: NativeAd, bg: Int, stroke: Int, ti
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f); setTextColor(subColor); maxLines = 2; ellipsize = TextUtils.TruncateAt.END
     }
     card.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = c.dp(8) })
+
+    card.addView(warning, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = c.dp(6) })
 
     val media = MediaView(c)
     card.addView(media, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, c.dp(150)).apply { topMargin = c.dp(10) })
@@ -219,16 +226,15 @@ private fun buildNativeAdView(c: Context, ad: NativeAd, bg: Int, stroke: Int, ti
     if (a.body == null) body.visibility = View.GONE
     if (a.sponsored == null) sponsored.visibility = View.GONE
     if (a.callToAction == null) cta.visibility = View.GONE
+    if (a.warning == null) warning.visibility = View.GONE
 
-    try {
-        ad.bindNativeAd(
-            NativeAdViewBinder.Builder(root)
-                .setIconView(icon).setTitleView(title).setBodyView(body)
-                .setSponsoredView(sponsored).setMediaView(media).setCallToActionView(cta)
-                .build()
-        )
-    } catch (e: Throwable) {
-        root.visibility = View.GONE
-    }
+    // SDK 8: bindNativeAd no longer throws; it returns a result object.
+    ad.bindNativeAd(
+        NativeAdViewBinder.Builder(root)
+            .setIconView(icon).setTitleView(title).setBodyView(body)
+            .setSponsoredView(sponsored).setWarningView(warning)
+            .setMediaView(media).setCallToActionView(cta)
+            .build()
+    )
     return root
 }

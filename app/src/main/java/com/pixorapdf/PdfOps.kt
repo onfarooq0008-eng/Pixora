@@ -77,11 +77,15 @@ object PdfOps {
 
     fun listPdfs(ctx: Context): List<PdfFile> {
         val out = ArrayList<PdfFile>()
-        val col = MediaStore.MediaColumns
-        val proj = arrayOf(col._ID, col.DISPLAY_NAME, col.SIZE, col.DATE_MODIFIED)
-        val sel = "${col.MIME_TYPE}=? AND (${col.RELATIVE_PATH} LIKE ? OR ${col.RELATIVE_PATH} LIKE ?)"
+        val proj = arrayOf(
+            MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME,
+            MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.DATE_MODIFIED
+        )
+        val mime = MediaStore.MediaColumns.MIME_TYPE
+        val rel = MediaStore.MediaColumns.RELATIVE_PATH
+        val sel = "$mime=? AND ($rel LIKE ? OR $rel LIKE ?)"
         val args = arrayOf("application/pdf", "Download/Pixora PDF%", "Documents/Pixora PDF%")
-        ctx.contentResolver.query(filesUri, proj, sel, args, "${col.DATE_MODIFIED} DESC")?.use { c ->
+        ctx.contentResolver.query(filesUri, proj, sel, args, "${MediaStore.MediaColumns.DATE_MODIFIED} DESC")?.use { c ->
             while (c.moveToNext()) {
                 val uri = ContentUris.withAppendedId(filesUri, c.getLong(0))
                 val mod = c.getLong(3)
