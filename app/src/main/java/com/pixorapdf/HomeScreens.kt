@@ -391,10 +391,10 @@ fun SettingsScreen(state: AppState) {
     }
 
     when (dialog) {
-        "theme" -> ChoiceDialog("Dark Mode", listOf("System", "Light", "Dark"), prefs.theme, { it }, { prefs.setTheme(it) }, { dialog = "" })
-        "size" -> ChoiceDialog("Default Page Size", PageSize.values().toList(), prefs.pageSize, { it.label }, { prefs.setPageSize(it) }, { dialog = "" })
-        "quality" -> ChoiceDialog("Default Image Quality", Quality.values().toList(), prefs.quality, { it.label }, { prefs.setQuality(it) }, { dialog = "" })
-        "location" -> ChoiceDialog("Save Location", listOf("Downloads", "Documents"), prefs.saveLocation, { "$it/Pixora PDF" }, { prefs.setSaveLocation(it); state.filesVersion++ }, { dialog = "" })
+        "theme" -> ChoiceDialog("Dark Mode", listOf("System", "Light", "Dark"), prefs.theme, { it }, { prefs.updateTheme(it) }, { dialog = "" })
+        "size" -> ChoiceDialog("Default Page Size", PageSize.values().toList(), prefs.pageSize, { it.label }, { prefs.updatePageSize(it) }, { dialog = "" })
+        "quality" -> ChoiceDialog("Default Image Quality", Quality.values().toList(), prefs.quality, { it.label }, { prefs.updateQuality(it) }, { dialog = "" })
+        "location" -> ChoiceDialog("Save Location", listOf("Downloads", "Documents"), prefs.saveLocation, { "$it/Pixora PDF" }, { prefs.updateSaveLocation(it); state.filesVersion++ }, { dialog = "" })
         "language" -> ChoiceDialog("Language", listOf("English"), "English", { it }, {}, { dialog = "" })
     }
 }
