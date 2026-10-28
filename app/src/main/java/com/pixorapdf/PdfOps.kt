@@ -175,6 +175,7 @@ object PdfOps {
     fun imagesToPdf(ctx: Context, pages: List<PageItem>, o: PdfOptions, out: OutputStream, onProgress: (Int) -> Unit) {
         init(ctx)
         val doc = PDDocument()
+        var added = 0
         try {
             pages.forEachIndexed { i, p ->
                 val bmp = Img.render(ctx, p, o.quality.maxDim)
@@ -182,6 +183,7 @@ object PdfOps {
                     val (pw, ph) = pageDims(o, bmp.width, bmp.height)
                     val page = PDPage(PDRectangle(pw, ph))
                     doc.addPage(page)
+                    added++
                     val m = o.margin.pts
                     val s = min((pw - 2 * m) / bmp.width, (ph - 2 * m) / bmp.height)
                     val w = bmp.width * s
@@ -192,6 +194,7 @@ object PdfOps {
                 }
                 onProgress(i + 1)
             }
+            if (added == 0) throw IllegalStateException("None of the selected images could be read")
             doc.save(out)
         } finally { doc.close() }
     }

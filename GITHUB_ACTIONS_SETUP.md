@@ -26,7 +26,7 @@ The workflow is `.github/workflows/android.yml`. It runs on every push to `main`
 
 ## Notes
 - `versionCode` is set automatically from the GitHub run number, so each upload to Play is higher than the last. Change `versionName` in `app/build.gradle.kts` when you want a new visible version.
-- The workflow uses Gradle 8.9 through the official setup action, so it works even without `gradle-wrapper.jar` in the repo.
+- The workflow uses Gradle 8.13 through the official setup action, so it works even without `gradle-wrapper.jar` in the repo.
 - If the AAB job says "Missing signing secrets", one of the 4 secrets is empty or misspelled.
 - Pull requests only build the debug APK (secrets are not available to them).
 - Play App Signing is recommended: you upload this AAB, Google re-signs it for users.

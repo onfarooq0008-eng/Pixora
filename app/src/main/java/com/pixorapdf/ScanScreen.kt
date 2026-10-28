@@ -3,6 +3,7 @@ package com.pixorapdf
 import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.view.Surface
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -29,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -42,6 +44,7 @@ import java.io.File
 fun ScanScreen(state: AppState) {
     val ctx = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val view = LocalView.current
     var granted by remember { mutableStateOf(ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
     LaunchedEffect(Unit) { if (!granted) permLauncher.launch(Manifest.permission.CAMERA) }
@@ -54,8 +57,10 @@ fun ScanScreen(state: AppState) {
     LaunchedEffect(flash) { imageCapture.flashMode = if (flash) ImageCapture.FLASH_MODE_ON else ImageCapture.FLASH_MODE_OFF }
 
     val providerRef = remember { arrayOfNulls<ProcessCameraProvider>(1) }
+    // If the user leaves the screen before the camera provider is ready, the late callback must not bind the camera
+    val disposed = remember { booleanArrayOf(false) }
     DisposableEffect(Unit) {
-        onDispose { try { providerRef[0]?.unbindAll() } catch (_: Throwable) {} }
+        onDispose { disposed[0] = true; try { providerRef[0]?.unbindAll() } catch (_: Throwable) {} }
     }
 
     fun capture() {
@@ -63,6 +68,8 @@ fun ScanScreen(state: AppState) {
         capturing = true
         val file = File(ctx.cacheDir, "scan_${System.currentTimeMillis()}.jpg")
         val opts = ImageCapture.OutputFileOptions.Builder(file).build()
+        // Targeting API 36 lifts the portrait lock on tablets/foldables, so follow the real display rotation
+        imageCapture.targetRotation = view.display?.rotation ?: Surface.ROTATION_0
         imageCapture.takePicture(opts, ContextCompat.getMainExecutor(ctx), object : ImageCapture.OnImageSavedCallback {
             override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                 state.addUris(listOf(Uri.fromFile(file)), enhance = documentMode)
@@ -85,6 +92,7 @@ fun ScanScreen(state: AppState) {
                     val future = ProcessCameraProvider.getInstance(c)
                     future.addListener({
                         try {
+                            if (disposed[0]) return@addListener
                             val provider = future.get()
                             providerRef[0] = provider
                             val preview = Preview.Builder().build().also { it.setSurfaceProvider(pv.surfaceProvider) }

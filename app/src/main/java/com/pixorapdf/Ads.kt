@@ -6,6 +6,7 @@ import android.content.ContextWrapper
 import android.graphics.Color as AColor
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.util.Log
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
@@ -56,9 +57,15 @@ object Ads {
     private val interstitialUnit: String get() = if (BuildConfig.DEBUG) DEMO_INTERSTITIAL_ID else INTERSTITIAL_ID
 
     // ---- Interstitial frequency rules (tweak here) ----
-    private const val EVERY_NTH_EXIT = 2              // 1st finished task: no ad, 2nd: ad, 3rd: no ad, 4th: ad ...
-    private const val MIN_GAP_MS = 3 * 60 * 1000L     // at least 3 minutes between two interstitials
-    private const val WARMUP_MS = 60 * 1000L          // nothing in the first minute after launch
+    private const val REL_EVERY_NTH_EXIT = 2              // 1st finished task: no ad, 2nd: ad, 3rd: no ad, 4th: ad ...
+    private const val REL_MIN_GAP_MS = 3 * 60 * 1000L     // at least 3 minutes between two interstitials
+    private const val REL_WARMUP_MS = 60 * 1000L          // nothing in the first minute after launch
+
+    // Debug builds: no limits, so you can see the test interstitial on every finished task.
+    private val EVERY_NTH_EXIT get() = if (BuildConfig.DEBUG) 1 else REL_EVERY_NTH_EXIT
+    private val MIN_GAP_MS get() = if (BuildConfig.DEBUG) 0L else REL_MIN_GAP_MS
+    private val WARMUP_MS get() = if (BuildConfig.DEBUG) 0L else REL_WARMUP_MS
+    const val TAG = "PixoraAds"
 
     private var started = false
     private var startTime = 0L
@@ -72,7 +79,7 @@ object Ads {
         if (started) return
         started = true
         startTime = System.currentTimeMillis()
-        YandexAds.initialize(app) { preloadInterstitial(app) }
+        YandexAds.initialize(app) { Log.d(TAG, "Yandex SDK initialized"); preloadInterstitial(app) }
     }
 
     private fun preloadInterstitial(app: Context) {
@@ -82,8 +89,8 @@ object Ads {
         l.loadAd(
             AdRequest.Builder(interstitialUnit).build(),
             object : InterstitialAdLoadListener {
-                override fun onAdLoaded(interstitialAd: InterstitialAd) { interstitial = interstitialAd; loading = false }
-                override fun onAdFailedToLoad(adRequestError: AdRequestError) { loading = false }
+                override fun onAdLoaded(interstitialAd: InterstitialAd) { interstitial = interstitialAd; loading = false; Log.d(TAG, "Interstitial loaded") }
+                override fun onAdFailedToLoad(adRequestError: AdRequestError) { loading = false; Log.e(TAG, "Interstitial failed: ${adRequestError.code} ${adRequestError.description}") }
             }
         )
     }
@@ -96,6 +103,7 @@ object Ads {
         exits++
         val now = System.currentTimeMillis()
         val ad = interstitial
+        Log.d(TAG, "afterTask: exit #$exits, adReady=${ad != null}")
         val due = exits % EVERY_NTH_EXIT == 0 &&
             now - startTime >= WARMUP_MS &&
             now - lastShown >= MIN_GAP_MS
@@ -143,8 +151,8 @@ fun NativeAdCard(modifier: Modifier = Modifier) {
         loader.loadAd(
             AdRequest.Builder(Ads.nativeUnit).build(),
             object : NativeAdLoadListener {
-                override fun onAdLoaded(nativeAd: NativeAd) { if (!disposed) ad = nativeAd }
-                override fun onAdFailedToLoad(error: AdRequestError) {}
+                override fun onAdLoaded(nativeAd: NativeAd) { Log.d(Ads.TAG, "Native loaded"); if (!disposed) ad = nativeAd }
+                override fun onAdFailedToLoad(error: AdRequestError) { Log.e(Ads.TAG, "Native failed: ${error.code} ${error.description}") }
             }
         )
         onDispose { disposed = true }
@@ -228,12 +236,13 @@ private fun buildNativeAdView(c: Context, ad: NativeAd, bg: Int, stroke: Int, ti
     if (a.warning == null) warning.visibility = View.GONE
 
     // SDK 8: bindNativeAd no longer throws; it returns a result object.
-    ad.bindNativeAd(
+    val bindResult = ad.bindNativeAd(
         NativeAdViewBinder.Builder(root)
             .setIconView(icon).setTitleView(title).setBodyView(body)
             .setSponsoredView(sponsored).setWarningView(warning)
             .setMediaView(media).setCallToActionView(cta)
             .build()
     )
+    Log.d(Ads.TAG, "Native bind result: $bindResult")
     return root
 }

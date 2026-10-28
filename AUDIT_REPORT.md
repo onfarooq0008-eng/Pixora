@@ -30,7 +30,7 @@
 - **First Gradle sync + `./gradlew assembleDebug`** – highest compile risk is the PdfBox-Android API usage in `PdfOps.kt` (`JPEGFactory.createFromImage(doc, bitmap, quality)`, `StandardProtectionPolicy`, `importPage`). If a signature differs in 2.0.27.0, adjust that one call.
 - `./gradlew lint`, then install and test the **release** APK (R8 can break reflection-based libraries; rules are in `app/proguard-rules.pro`).
 - Not tested on any device: photo picker, camera capture, crop gestures, MediaStore saving/renaming/deleting, PdfRenderer viewer, merge/split/rotate/password/compress, dark mode.
-- Play target API 35 / 16 KB page-size rule: the dependencies used are expected to be pure Java/Kotlin, but check with Android Studio's APK Analyzer on the release bundle.
+- Play target API 36 / 16 KB page-size rule: app now targets API 36 (AGP 8.13.2, Gradle 8.13) and uses CameraX 1.4.2 (1.3.x had a non-16 KB-aligned native lib). The release CI job runs `scripts/check_16kb.py` on the AAB and fails if any 64-bit .so is not 16 KB aligned.
 - Portrait is locked (`screenOrientation`); Play may flag this for tablets/foldables as a quality warning.
 - Language setting is English only; privacy/terms pages need your name, email, website and country filled in.
 - No unit or UI tests exist in the project.

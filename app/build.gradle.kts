@@ -14,12 +14,12 @@ val keystoreProps = Properties().apply {
 
 android {
     namespace = "com.pixorapdf"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.pixorapdf"
         minSdk = 29
-        targetSdk = 35
+        targetSdk = 36
         // CI passes -PversionCodeOverride=<run number> so every Play upload has a higher code
         versionCode = (project.findProperty("versionCodeOverride") as String?)?.toIntOrNull() ?: 1
         versionName = "1.0"
@@ -56,7 +56,11 @@ android {
         disable += "YandexAdsSdkOutdatedVersion"
         abortOnError = false   // report is still uploaded by CI; findings no longer block the APK/AAB
     }
-    packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
+    packaging {
+        resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+        // Keep native libs uncompressed so they stay 16 KB zip-aligned (Play 16 KB page-size rule)
+        jniLibs { useLegacyPackaging = false }
+    }
 }
 
 dependencies {
@@ -71,7 +75,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
 
     // Camera (Scan Document)
-    val camerax = "1.3.4"
+    val camerax = "1.4.2"   // 1.3.x ships libimage_processing_util_jni.so without 16 KB alignment
     implementation("androidx.camera:camera-core:$camerax")
     implementation("androidx.camera:camera-camera2:$camerax")
     implementation("androidx.camera:camera-lifecycle:$camerax")
