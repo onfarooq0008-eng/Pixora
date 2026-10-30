@@ -46,6 +46,7 @@ import com.yandex.mobile.ads.nativeads.NativeAdLoadListener
 import com.yandex.mobile.ads.nativeads.NativeAdLoader
 import com.yandex.mobile.ads.nativeads.NativeAdView
 import com.yandex.mobile.ads.nativeads.NativeAdViewBinder
+import com.yandex.mobile.ads.nativeads.Rating
 
 /**
  * Yandex Mobile Ads (SDK 8.6.0).
@@ -298,6 +299,11 @@ fun NativeAdCard(placement: String, modifier: Modifier = Modifier) {
     }
 }
 
+/** Yandex's setRatingView() requires a View that implements its Rating interface; a plain RatingBar does not compile. */
+private class AdRatingBar(c: Context) : RatingBar(c, null, android.R.attr.ratingBarStyleSmall), Rating {
+    override fun setRating(rating: Float) { super.setRating(rating) }
+}
+
 private fun buildNativeAdView(c: Context, slot: Ads.NativeSlot, ad: NativeAd, bg: Int, stroke: Int, titleColor: Int, subColor: Int, accent: Int): View {
     val placement = slot.key
     val wrap = ViewGroup.LayoutParams.WRAP_CONTENT
@@ -339,7 +345,7 @@ private fun buildNativeAdView(c: Context, slot: Ads.NativeSlot, ad: NativeAd, bg
     // meta row: favicon, rating, review count, price, domain, age (each hidden when the ad has no such asset)
     val meta = LinearLayout(c).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
     val favicon = ImageView(c).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
-    val rating = RatingBar(c, null, android.R.attr.ratingBarStyleSmall).apply { setIsIndicator(true); numStars = 5; stepSize = 0.5f }
+    val rating = AdRatingBar(c).apply { setIsIndicator(true); numStars = 5; stepSize = 0.5f }
     val reviewCount = smallText(11f)
     val price = smallText(11f, bold = true)
     val domain = smallText(11f)
