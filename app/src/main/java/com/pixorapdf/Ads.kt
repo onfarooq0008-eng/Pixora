@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import com.yandex.mobile.ads.common.AdBindingResult
 import com.yandex.mobile.ads.common.AdError
 import com.yandex.mobile.ads.common.AdRequest
 import com.yandex.mobile.ads.common.AdRequestError
@@ -337,6 +338,14 @@ private fun buildNativeAdView(c: Context, slot: Ads.NativeSlot, ad: NativeAd, bg
         background = GradientDrawable().apply { setStroke(c.dp(1), subColor); cornerRadius = c.dp(5).toFloat() }
     }
     header.addView(badge)
+    // Yandex requires a feedback view (the SDK attaches its "hide this ad" menu to it) - binding fails without it.
+    val feedback = ImageView(c).apply {
+        scaleType = ImageView.ScaleType.CENTER_INSIDE
+        setImageResource(android.R.drawable.ic_menu_more)
+        setColorFilter(subColor)
+        setPadding(c.dp(4), c.dp(4), c.dp(4), c.dp(4))
+    }
+    header.addView(feedback, LinearLayout.LayoutParams(c.dp(30), c.dp(30)).apply { leftMargin = c.dp(6) })
     card.addView(header)
 
     val body = smallText(12f, lines = 2)
@@ -389,11 +398,14 @@ private fun buildNativeAdView(c: Context, slot: Ads.NativeSlot, ad: NativeAd, bg
             .setCallToActionView(cta).setSponsoredView(sponsored).setWarningView(warning)
             .setAgeView(age).setDomainView(domain).setFaviconView(favicon)
             .setPriceView(price).setRatingView(rating).setReviewCountView(reviewCount)
+            .setFeedbackView(feedback)
             .build()
     )
-    val resultName = bindResult.toString() + " (" + bindResult.javaClass.name + ")"
-    Log.d(Ads.TAG, "Native[$placement] bind result: $resultName")
-    val failed = resultName.contains("fail", ignoreCase = true) || resultName.contains("error", ignoreCase = true)
+    val failure = bindResult as? AdBindingResult.Failure
+    val failMsg = failure?.exception?.message ?: "unknown"
+    Log.d(Ads.TAG, "Native[$placement] bind result: ${if (failure == null) "Success" else "Failure: $failMsg"}")
+    val failed = failure != null
+    val resultName = failMsg
     if (failed) {
         root.visibility = View.GONE
         Ads.bindFailed(slot, ad, resultName)
