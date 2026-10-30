@@ -17,8 +17,13 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.RatingBar
 import android.widget.TextView
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
@@ -98,7 +103,10 @@ object Ads {
         var retries = 0
         var lastFailAt = 0L
         var retryTask: Runnable? = null
+        var bindFailures = 0
+        var status by mutableStateOf("idle")      // shown on screen in debug builds only
     }
+    private const val MAX_BIND_FAILURES = 2
 
     fun slot(key: String): NativeSlot = slots.getOrPut(key) { NativeSlot(key) }
 
@@ -131,7 +139,7 @@ object Ads {
                 Log.d(TAG, "Native[${slot.key}] request skipped: retry budget used, cooling down"); return@post
             }
             if (slot.retries > RETRY_DELAYS_MS.size) slot.retries = 0
-            if (!ready) { Log.d(TAG, "Native[${slot.key}] waiting for SDK init"); pending.add { requestNative(slot) }; return@post }
+            if (!ready) { slot.status = "waiting for SDK init"; Log.d(TAG, "Native[${slot.key}] waiting for SDK init"); pending.add { requestNative(slot) }; return@post }
             loadNative(slot)
         }
     }
@@ -140,6 +148,7 @@ object Ads {
         if (slot.ad != null || slot.loading) return
         val l = slot.loader ?: NativeAdLoader(appCtx).also { slot.loader = it }
         slot.loading = true
+        slot.status = "requesting ${nativeUnit} (attempt ${slot.retries + 1})"
         Log.d(TAG, "Native[${slot.key}] REQUEST unit=$nativeUnit attempt=${slot.retries + 1}")
         l.loadAd(
             AdRequest.Builder(nativeUnit).build(),
@@ -150,6 +159,7 @@ object Ads {
                         val a = nativeAd.adAssets
                         Log.d(TAG, "Native[${slot.key}] SUCCESS assets: title=${a.title != null} body=${a.body != null} icon=${a.icon != null} " +
                             "media=${a.media != null} cta=${a.callToAction != null} sponsored=${a.sponsored != null} warning=${a.warning != null}")
+                        slot.status = "loaded, binding"
                         slot.ad = nativeAd
                     }
                 }
@@ -157,9 +167,11 @@ object Ads {
                     main.post {
                         slot.loading = false; slot.lastFailAt = System.currentTimeMillis()
                         Log.e(TAG, "Native[${slot.key}] FAILED code=${error.code} description=${error.description} unit=$nativeUnit retries=${slot.retries}")
+                        slot.status = "FAILED code=${error.code}: ${error.description}"
                         val retryable = error.code != 2   // 2 = invalid request: retrying cannot help
                         if (retryable && slot.retries < RETRY_DELAYS_MS.size) {
                             val delay = RETRY_DELAYS_MS[slot.retries]; slot.retries++
+                            slot.status += " | retry ${slot.retries}/${RETRY_DELAYS_MS.size} in ${delay / 1000}s"
                             Log.d(TAG, "Native[${slot.key}] retry #${slot.retries} in ${delay}ms")
                             val t = Runnable { slot.retryTask = null; loadNative(slot) }
                             slot.retryTask = t; main.postDelayed(t, delay)
@@ -171,6 +183,21 @@ object Ads {
                 }
             }
         )
+    }
+
+    fun bindOk(slot: NativeSlot) { slot.bindFailures = 0; slot.status = "shown"; Log.d(TAG, "Native[${slot.key}] bound and visible") }
+
+    /** Binding failed or the card came out empty: drop this ad and load a fresh one (limited). */
+    fun bindFailed(slot: NativeSlot, ad: NativeAd, reason: String) {
+        main.post {
+            if (slot.ad !== ad) return@post
+            slot.ad = null
+            slot.bindFailures++
+            slot.status = "BIND FAILED: $reason (#${slot.bindFailures})"
+            Log.e(TAG, "Native[${slot.key}] BIND FAILED: $reason")
+            if (slot.bindFailures <= MAX_BIND_FAILURES) main.postDelayed({ loadNative(slot) }, 1000)
+            else Log.e(TAG, "Native[${slot.key}] bind failed too often, giving up for now")
+        }
     }
 
     /** The card that showed this ad left composition: a NativeAd must not be re-bound to a new view, so drop it. */
@@ -236,7 +263,7 @@ fun Context.findActivity(): Activity? {
 
 private fun Context.dp(v: Int) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics).toInt()
 
-/** Native ad card. Takes no space until an ad has loaded (or if loading fails). [placement] must be unique per screen slot. */
+/** Native ad card. Takes no space until an ad has loaded (debug builds show a one-line status instead). [placement] must be unique per screen slot. */
 @Composable
 fun NativeAdCard(placement: String, modifier: Modifier = Modifier) {
     val cs = MaterialTheme.colorScheme
@@ -246,8 +273,16 @@ fun NativeAdCard(placement: String, modifier: Modifier = Modifier) {
 
     val loaded = slot.ad
     DisposableEffect(loaded) { onDispose { Ads.releaseNative(slot, loaded) } }
-    if (loaded == null) return
-    if (loaded.adAssets.title == null) { Log.e(Ads.TAG, "Native[$placement] has no title asset, not shown"); return }
+    if (loaded == null) {
+        if (BuildConfig.DEBUG) {
+            Text("native ad [$placement]: ${slot.status}", fontSize = 11.sp, color = cs.error, modifier = modifier.padding(vertical = 4.dp))
+        }
+        return
+    }
+    if (loaded.adAssets.title == null) {
+        LaunchedEffect(loaded) { Ads.bindFailed(slot, loaded, "ad has no title asset") }
+        return
+    }
 
     val bg = cs.surface.toArgb()
     val stroke = cs.outlineVariant.toArgb()
@@ -258,14 +293,17 @@ fun NativeAdCard(placement: String, modifier: Modifier = Modifier) {
     key(loaded) {
         AndroidView(
             modifier = modifier,
-            factory = { c -> buildNativeAdView(c, placement, loaded, bg, stroke, title, sub, accent) }
+            factory = { c -> buildNativeAdView(c, slot, loaded, bg, stroke, title, sub, accent) }
         )
     }
 }
 
-private fun buildNativeAdView(c: Context, placement: String, ad: NativeAd, bg: Int, stroke: Int, titleColor: Int, subColor: Int, accent: Int): View {
+private fun buildNativeAdView(c: Context, slot: Ads.NativeSlot, ad: NativeAd, bg: Int, stroke: Int, titleColor: Int, subColor: Int, accent: Int): View {
+    val placement = slot.key
+    val wrap = ViewGroup.LayoutParams.WRAP_CONTENT
+    val match = ViewGroup.LayoutParams.MATCH_PARENT
     val root = NativeAdView(c)
-    root.layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+    root.layoutParams = ViewGroup.LayoutParams(match, wrap)
 
     val card = LinearLayout(c).apply {
         orientation = LinearLayout.VERTICAL
@@ -273,42 +311,52 @@ private fun buildNativeAdView(c: Context, placement: String, ad: NativeAd, bg: I
         background = GradientDrawable().apply { setColor(bg); cornerRadius = c.dp(18).toFloat(); setStroke(c.dp(1), stroke) }
     }
 
+    fun smallText(sp: Float, bold: Boolean = false, lines: Int = 1) = TextView(c).apply {
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, sp); setTextColor(subColor); maxLines = lines; ellipsize = TextUtils.TruncateAt.END
+        if (bold) setTypeface(typeface, Typeface.BOLD)
+    }
+
     // header: [icon] title / sponsored            [Ad]
     val header = LinearLayout(c).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
     val icon = ImageView(c).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
     header.addView(icon, LinearLayout.LayoutParams(c.dp(40), c.dp(40)).apply { rightMargin = c.dp(10) })
-
     val texts = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL }
-    val title = TextView(c).apply {
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f); setTextColor(titleColor); setTypeface(typeface, Typeface.BOLD)
-        maxLines = 1; ellipsize = TextUtils.TruncateAt.END
-    }
-    val sponsored = TextView(c).apply {
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f); setTextColor(subColor); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
-    }
-    val warning = TextView(c).apply {
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f); setTextColor(subColor); maxLines = 2; ellipsize = TextUtils.TruncateAt.END
-    }
+    val title = smallText(14f, bold = true).apply { setTextColor(titleColor) }
+    val sponsored = smallText(11f)
     texts.addView(title); texts.addView(sponsored)
-    header.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-
-    val badge = TextView(c).apply {
-        text = "Ad"; setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f); setTextColor(subColor); setTypeface(typeface, Typeface.BOLD)
+    header.addView(texts, LinearLayout.LayoutParams(0, wrap, 1f))
+    val badge = smallText(10f, bold = true).apply {
+        text = "Ad"
         setPadding(c.dp(6), c.dp(1), c.dp(6), c.dp(1))
         background = GradientDrawable().apply { setStroke(c.dp(1), subColor); cornerRadius = c.dp(5).toFloat() }
     }
     header.addView(badge)
     card.addView(header)
 
-    val body = TextView(c).apply {
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f); setTextColor(subColor); maxLines = 2; ellipsize = TextUtils.TruncateAt.END
-    }
-    card.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = c.dp(8) })
+    val body = smallText(12f, lines = 2)
+    card.addView(body, LinearLayout.LayoutParams(match, wrap).apply { topMargin = c.dp(8) })
 
-    card.addView(warning, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = c.dp(6) })
+    // meta row: favicon, rating, review count, price, domain, age (each hidden when the ad has no such asset)
+    val meta = LinearLayout(c).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+    val favicon = ImageView(c).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
+    val rating = RatingBar(c, null, android.R.attr.ratingBarStyleSmall).apply { setIsIndicator(true); numStars = 5; stepSize = 0.5f }
+    val reviewCount = smallText(11f)
+    val price = smallText(11f, bold = true)
+    val domain = smallText(11f)
+    val age = smallText(11f)
+    meta.addView(favicon, LinearLayout.LayoutParams(c.dp(14), c.dp(14)).apply { rightMargin = c.dp(6) })
+    meta.addView(rating, LinearLayout.LayoutParams(wrap, wrap).apply { rightMargin = c.dp(6) })
+    meta.addView(reviewCount, LinearLayout.LayoutParams(wrap, wrap).apply { rightMargin = c.dp(8) })
+    meta.addView(price, LinearLayout.LayoutParams(wrap, wrap).apply { rightMargin = c.dp(8) })
+    meta.addView(domain, LinearLayout.LayoutParams(0, wrap, 1f).apply { rightMargin = c.dp(8) })
+    meta.addView(age, LinearLayout.LayoutParams(wrap, wrap))
+    card.addView(meta, LinearLayout.LayoutParams(match, wrap).apply { topMargin = c.dp(6) })
+
+    val warning = smallText(10f, lines = 2)
+    card.addView(warning, LinearLayout.LayoutParams(match, wrap).apply { topMargin = c.dp(6) })
 
     val media = MediaView(c)
-    card.addView(media, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, c.dp(150)).apply { topMargin = c.dp(10) })
+    card.addView(media, LinearLayout.LayoutParams(match, c.dp(150)).apply { topMargin = c.dp(10) })
 
     val cta = Button(c).apply {
         isAllCaps = false; setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f); setTextColor(AColor.WHITE); setTypeface(typeface, Typeface.BOLD)
@@ -316,32 +364,41 @@ private fun buildNativeAdView(c: Context, placement: String, ad: NativeAd, bg: I
         minHeight = 0; minimumHeight = 0; stateListAnimator = null
         setPadding(c.dp(12), c.dp(8), c.dp(12), c.dp(8))
     }
-    card.addView(cta, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, c.dp(42)).apply { topMargin = c.dp(10) })
+    card.addView(cta, LinearLayout.LayoutParams(match, c.dp(42)).apply { topMargin = c.dp(10) })
     root.addView(card)
 
+    // Hide the views whose asset this ad does not carry. Every asset the ad DOES carry has a bound view below.
     val a = ad.adAssets
-    if (a.icon == null) icon.visibility = View.GONE
-    if (a.media == null) media.visibility = View.GONE
-    if (a.body == null) body.visibility = View.GONE
-    if (a.sponsored == null) sponsored.visibility = View.GONE
-    if (a.callToAction == null) cta.visibility = View.GONE
-    if (a.warning == null) warning.visibility = View.GONE
+    fun hideIfNull(v: View, asset: Any?) { if (asset == null) v.visibility = View.GONE }
+    hideIfNull(icon, a.icon); hideIfNull(media, a.media); hideIfNull(body, a.body); hideIfNull(sponsored, a.sponsored)
+    hideIfNull(cta, a.callToAction); hideIfNull(warning, a.warning)
+    hideIfNull(favicon, a.favicon); hideIfNull(rating, a.rating); hideIfNull(reviewCount, a.reviewCount)
+    hideIfNull(price, a.price); hideIfNull(domain, a.domain); hideIfNull(age, a.age)
+    if (a.favicon == null && a.rating == null && a.reviewCount == null && a.price == null && a.domain == null && a.age == null) meta.visibility = View.GONE
 
-    // SDK 8: bindNativeAd no longer throws; it returns a result object.
+    // SDK 8: bindNativeAd returns a result object (Success / Failure) instead of throwing.
     val bindResult = ad.bindNativeAd(
         NativeAdViewBinder.Builder(root)
-            .setIconView(icon).setTitleView(title).setBodyView(body)
-            .setSponsoredView(sponsored).setWarningView(warning)
-            .setMediaView(media).setCallToActionView(cta)
+            .setTitleView(title).setBodyView(body).setIconView(icon).setMediaView(media)
+            .setCallToActionView(cta).setSponsoredView(sponsored).setWarningView(warning)
+            .setAgeView(age).setDomainView(domain).setFaviconView(favicon)
+            .setPriceView(price).setRatingView(rating).setReviewCountView(reviewCount)
             .build()
     )
-    Log.d(Ads.TAG, "Native[$placement] bind result: $bindResult")
-    // Safety net: if the SDK did not fill the (required) title, never leave an empty "Ad" box on screen.
-    root.postDelayed({
-        if (title.text.isNullOrEmpty()) {
-            Log.e(Ads.TAG, "Native[$placement] bound but title is empty -> hiding card")
-            root.visibility = View.GONE
-        }
-    }, 1500)
+    val resultName = bindResult.toString() + " (" + bindResult.javaClass.name + ")"
+    Log.d(Ads.TAG, "Native[$placement] bind result: $resultName")
+    val failed = resultName.contains("fail", ignoreCase = true) || resultName.contains("error", ignoreCase = true)
+    if (failed) {
+        root.visibility = View.GONE
+        Ads.bindFailed(slot, ad, resultName)
+    } else {
+        // Safety net: never leave an empty "Ad" box on screen.
+        root.postDelayed({
+            if (title.text.isNullOrEmpty()) {
+                root.visibility = View.GONE
+                Ads.bindFailed(slot, ad, "bound but title is empty")
+            } else Ads.bindOk(slot)
+        }, 1500)
+    }
     return root
 }
