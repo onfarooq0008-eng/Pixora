@@ -21,8 +21,8 @@ android {
         minSdk = 29
         targetSdk = 36
         // CI passes -PversionCodeOverride=<run number> so every Play upload has a higher code
-        versionCode = (project.findProperty("versionCodeOverride") as String?)?.toIntOrNull() ?: 1
-        versionName = "1.0"
+        versionCode = (project.findProperty("versionCodeOverride") as String?)?.toIntOrNull() ?: 2
+        versionName = "1.0.1"
     }
 
     signingConfigs {
