@@ -6,6 +6,8 @@ import android.content.ContextWrapper
 import android.graphics.Color as AColor
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.text.TextUtils
 import android.util.TypedValue
@@ -22,6 +24,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import com.yandex.mobile.ads.common.AdError
 import com.yandex.mobile.ads.common.AdRequest
 import com.yandex.mobile.ads.common.AdRequestError
@@ -50,7 +54,7 @@ import com.yandex.mobile.ads.nativeads.NativeAdViewBinder
 object Ads {
     private const val NATIVE_ID = "R-M-20285054-1"
     private const val INTERSTITIAL_ID = "R-M-20285054-2"
-    private const val DEMO_NATIVE_ID = "demo-native-content-yandex"
+    private const val DEMO_NATIVE_ID = "demo-native-app-yandex"
     private const val DEMO_INTERSTITIAL_ID = "demo-interstitial-yandex"
 
     val nativeUnit: String get() = if (BuildConfig.DEBUG) DEMO_NATIVE_ID else NATIVE_ID
@@ -75,17 +79,111 @@ object Ads {
     private var exits = 0
     private var lastShown = 0L
 
+    // ---- SDK init gate: nothing is requested before YandexAds.initialize() has called back ----
+    private val main = Handler(Looper.getMainLooper())
+    private lateinit var appCtx: Context
+    @Volatile private var ready = false
+    private val pending = ArrayList<() -> Unit>()
+
+    // ---- Native: one slot per placement. Slots live in this singleton, so the loader and the loaded ad
+    //      survive recomposition / navigation; the Composable only observes the slot. ----
+    private val slots = HashMap<String, NativeSlot>()
+    private val RETRY_DELAYS_MS = longArrayOf(5_000L, 15_000L, 45_000L)   // max 3 retries, then give up
+    private const val NEW_ROUND_AFTER_MS = 60_000L
+
+    class NativeSlot(val key: String) {
+        var loader: NativeAdLoader? = null          // strong reference for the whole load + display lifecycle
+        var ad by mutableStateOf<NativeAd?>(null)
+        var loading = false
+        var retries = 0
+        var lastFailAt = 0L
+        var retryTask: Runnable? = null
+    }
+
+    fun slot(key: String): NativeSlot = slots.getOrPut(key) { NativeSlot(key) }
+
     fun init(app: Context) {
         if (started) return
         started = true
+        appCtx = app.applicationContext
         startTime = System.currentTimeMillis()
-        YandexAds.initialize(app) { Log.d(TAG, "Yandex SDK initialized"); preloadInterstitial(app) }
+        if (BuildConfig.DEBUG) {
+            // Shows Yandex's red overlay with the exact reason when an ad unit / integration is wrong.
+            YandexAds.enableDebugErrorIndicator(true)
+        }
+        Log.d(TAG, "Yandex SDK initialize() called (debug=${BuildConfig.DEBUG}, nativeUnit=$nativeUnit, interstitialUnit=$interstitialUnit)")
+        YandexAds.initialize(appCtx) {
+            Log.d(TAG, "Yandex SDK initialized")
+            main.post {
+                ready = true
+                val run = ArrayList(pending); pending.clear()
+                run.forEach { it() }
+                preloadInterstitial(appCtx)
+            }
+        }
+    }
+
+    /** Called by [NativeAdCard] when it enters composition. Safe to call any number of times. */
+    fun requestNative(slot: NativeSlot) {
+        main.post {
+            if (slot.ad != null || slot.loading || slot.retryTask != null) return@post
+            if (slot.retries > RETRY_DELAYS_MS.size && System.currentTimeMillis() - slot.lastFailAt < NEW_ROUND_AFTER_MS) {
+                Log.d(TAG, "Native[${slot.key}] request skipped: retry budget used, cooling down"); return@post
+            }
+            if (slot.retries > RETRY_DELAYS_MS.size) slot.retries = 0
+            if (!ready) { Log.d(TAG, "Native[${slot.key}] waiting for SDK init"); pending.add { requestNative(slot) }; return@post }
+            loadNative(slot)
+        }
+    }
+
+    private fun loadNative(slot: NativeSlot) {
+        if (slot.ad != null || slot.loading) return
+        val l = slot.loader ?: NativeAdLoader(appCtx).also { slot.loader = it }
+        slot.loading = true
+        Log.d(TAG, "Native[${slot.key}] REQUEST unit=$nativeUnit attempt=${slot.retries + 1}")
+        l.loadAd(
+            AdRequest.Builder(nativeUnit).build(),
+            object : NativeAdLoadListener {
+                override fun onAdLoaded(nativeAd: NativeAd) {
+                    main.post {
+                        slot.loading = false; slot.retries = 0
+                        val a = nativeAd.adAssets
+                        Log.d(TAG, "Native[${slot.key}] SUCCESS assets: title=${a.title != null} body=${a.body != null} icon=${a.icon != null} " +
+                            "media=${a.media != null} cta=${a.callToAction != null} sponsored=${a.sponsored != null} warning=${a.warning != null}")
+                        slot.ad = nativeAd
+                    }
+                }
+                override fun onAdFailedToLoad(error: AdRequestError) {
+                    main.post {
+                        slot.loading = false; slot.lastFailAt = System.currentTimeMillis()
+                        Log.e(TAG, "Native[${slot.key}] FAILED code=${error.code} description=${error.description} unit=$nativeUnit retries=${slot.retries}")
+                        val retryable = error.code != 2   // 2 = invalid request: retrying cannot help
+                        if (retryable && slot.retries < RETRY_DELAYS_MS.size) {
+                            val delay = RETRY_DELAYS_MS[slot.retries]; slot.retries++
+                            Log.d(TAG, "Native[${slot.key}] retry #${slot.retries} in ${delay}ms")
+                            val t = Runnable { slot.retryTask = null; loadNative(slot) }
+                            slot.retryTask = t; main.postDelayed(t, delay)
+                        } else {
+                            slot.retries = RETRY_DELAYS_MS.size + 1
+                            Log.e(TAG, "Native[${slot.key}] giving up for now")
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    /** The card that showed this ad left composition: a NativeAd must not be re-bound to a new view, so drop it. */
+    fun releaseNative(slot: NativeSlot, ad: NativeAd?) {
+        if (ad != null && slot.ad === ad) { slot.ad = null; Log.d(TAG, "Native[${slot.key}] released (view gone)") }
     }
 
     private fun preloadInterstitial(app: Context) {
+        if (!ready) return
         if (loading || interstitial != null) return
         val l = loader ?: InterstitialAdLoader(app).also { loader = it }
         loading = true
+        Log.d(TAG, "Interstitial REQUEST unit=$interstitialUnit")
         l.loadAd(
             AdRequest.Builder(interstitialUnit).build(),
             object : InterstitialAdLoadListener {
@@ -138,40 +236,34 @@ fun Context.findActivity(): Activity? {
 
 private fun Context.dp(v: Int) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics).toInt()
 
-/** Native ad card. Takes no space until an ad has loaded (or if loading fails). */
+/** Native ad card. Takes no space until an ad has loaded (or if loading fails). [placement] must be unique per screen slot. */
 @Composable
-fun NativeAdCard(modifier: Modifier = Modifier) {
-    val ctx = LocalContext.current
+fun NativeAdCard(placement: String, modifier: Modifier = Modifier) {
     val cs = MaterialTheme.colorScheme
-    var ad by remember { mutableStateOf<NativeAd?>(null) }
+    val slot = remember(placement) { Ads.slot(placement) }
+    // Loading is owned by the Ads singleton, so recomposition / navigation cannot cancel it.
+    LaunchedEffect(slot) { Ads.requestNative(slot) }
 
-    DisposableEffect(Unit) {
-        var disposed = false
-        val loader = NativeAdLoader(ctx)
-        loader.loadAd(
-            AdRequest.Builder(Ads.nativeUnit).build(),
-            object : NativeAdLoadListener {
-                override fun onAdLoaded(nativeAd: NativeAd) { Log.d(Ads.TAG, "Native loaded"); if (!disposed) ad = nativeAd }
-                override fun onAdFailedToLoad(error: AdRequestError) { Log.e(Ads.TAG, "Native failed: ${error.code} ${error.description}") }
-            }
-        )
-        onDispose { disposed = true }
-    }
+    val loaded = slot.ad
+    DisposableEffect(loaded) { onDispose { Ads.releaseNative(slot, loaded) } }
+    if (loaded == null) return
+    if (loaded.adAssets.title == null) { Log.e(Ads.TAG, "Native[$placement] has no title asset, not shown"); return }
 
-    val loaded = ad ?: return
     val bg = cs.surface.toArgb()
     val stroke = cs.outlineVariant.toArgb()
     val title = cs.onSurface.toArgb()
     val sub = cs.onSurfaceVariant.toArgb()
     val accent = cs.primary.toArgb()
 
-    AndroidView(
-        modifier = modifier,
-        factory = { c -> buildNativeAdView(c, loaded, bg, stroke, title, sub, accent) }
-    )
+    key(loaded) {
+        AndroidView(
+            modifier = modifier,
+            factory = { c -> buildNativeAdView(c, placement, loaded, bg, stroke, title, sub, accent) }
+        )
+    }
 }
 
-private fun buildNativeAdView(c: Context, ad: NativeAd, bg: Int, stroke: Int, titleColor: Int, subColor: Int, accent: Int): View {
+private fun buildNativeAdView(c: Context, placement: String, ad: NativeAd, bg: Int, stroke: Int, titleColor: Int, subColor: Int, accent: Int): View {
     val root = NativeAdView(c)
     root.layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
@@ -243,6 +335,13 @@ private fun buildNativeAdView(c: Context, ad: NativeAd, bg: Int, stroke: Int, ti
             .setMediaView(media).setCallToActionView(cta)
             .build()
     )
-    Log.d(Ads.TAG, "Native bind result: $bindResult")
+    Log.d(Ads.TAG, "Native[$placement] bind result: $bindResult")
+    // Safety net: if the SDK did not fill the (required) title, never leave an empty "Ad" box on screen.
+    root.postDelayed({
+        if (title.text.isNullOrEmpty()) {
+            Log.e(Ads.TAG, "Native[$placement] bound but title is empty -> hiding card")
+            root.visibility = View.GONE
+        }
+    }, 1500)
     return root
 }

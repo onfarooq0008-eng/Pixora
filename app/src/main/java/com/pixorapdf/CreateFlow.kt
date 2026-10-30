@@ -352,7 +352,7 @@ fun CreatedScreen(state: AppState, s: Screen.Created) {
             modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(14.dp)
         ) { Text("Create Another PDF", fontWeight = FontWeight.SemiBold) }
         Spacer(Modifier.height(16.dp))
-        NativeAdCard(Modifier.fillMaxWidth())
+        NativeAdCard("pdf_created", Modifier.fillMaxWidth())
         Spacer(Modifier.height(20.dp))
     }
 

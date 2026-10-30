@@ -135,7 +135,7 @@ fun HomeScreen(state: AppState) {
             }
         }
 
-        NativeAdCard(Modifier.fillMaxWidth().padding(bottom = 6.dp))
+        NativeAdCard("home", Modifier.fillMaxWidth().padding(bottom = 6.dp))
 
         if (recent.isNotEmpty()) {
             Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -309,7 +309,7 @@ fun FilesScreen(state: AppState) {
                     FileRow(f, state, onChanged = { state.filesVersion++ })
                     HorizontalDivider(color = cs.outlineVariant)
                     // one native ad after the 3rd file (only when the list is long enough)
-                    if (i == 2 && shown.size > 3) NativeAdCard(Modifier.fillMaxWidth().padding(vertical = 8.dp))
+                    if (i == 2 && shown.size > 3) NativeAdCard("my_pdfs", Modifier.fillMaxWidth().padding(vertical = 8.dp))
                 }
             }
         }
